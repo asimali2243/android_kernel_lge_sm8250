@@ -1,0 +1,27 @@
+- name: Compile the Kernel
+      run: |
+        cd kernel-source
+        
+        # SukiSU Ultra Injector
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
+        
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export PATH="$GITHUB_WORKSPACE/toolchains/proton-clang/bin:${PATH}"
+        
+        export KBUILD_BUILD_USER="lutaif"
+        export KBUILD_BUILD_HOST="github-actions"
+        
+        # 1. Defconfig generate karo
+        make O=out vendor/kona-perf_defconfig
+        
+        # 2. YEH FIX HAI: Broken OIS camera module ko config se disable karna
+        scripts/config --file out/.config --disable CONFIG_SPECTRA_CAMERA
+        scripts/config --file out/.config --disable CONFIG_LGE_CAMERA_OIS
+        
+        # 3. Compile start karo
+        make -j$(nproc) O=out \
+                        CC=clang \
+                        CROSS_COMPILE=aarch64-linux-gnu- \
+                        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                        KCFLAGS="-Wno-error"
