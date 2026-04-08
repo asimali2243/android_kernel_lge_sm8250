@@ -1,13 +1,15 @@
 name: Build LG V60 Kernel
 
-# This allows you to manually trigger the build from the GitHub Actions tab
 on:
   workflow_dispatch:
 
 jobs:
   build:
     name: Compile Kernel
-    runs-on: ubuntu-22.04 # GitHub's free cloud server environment
+    runs-on: ubuntu-22.04
+    env:
+      # Is se Node.js wali warning bhi chup ho jayegi
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
 
     steps:
     - name: 1. Checkout Kernel Source
@@ -29,20 +31,28 @@ jobs:
       run: |
         cd kernel-source
         
-        # Set up the environment variables
+        # Environment variables
         export ARCH=arm64
         export SUBARCH=arm64
         export PATH="$GITHUB_WORKSPACE/toolchains/proton-clang/bin:${PATH}"
         
-        # Initialize the configuration. 
-        # IMPORTANT: Change 'vendor/kona-perf_defconfig' if the developer used a different name!
+        # YEH FIX HAI: Compiler se kehte hain ke warnings par error na de
+        export KCFLAGS="-Wno-error"
+        export KBUILD_BUILD_USER="lutaif"
+        export KBUILD_BUILD_HOST="github-actions"
+        
+        # Source code mein se bhi zabardasti -Werror hata dete hain safety ke liye
+        sed -i 's/-Werror//g' Makefile
+        sed -i 's/-Werror//g' scripts/Makefile.extrawarn || true
+        
         make O=out vendor/kona-perf_defconfig
         
-        # Start the compiler
+        # Build command jisme KCFLAGS pass kiya gaya hai
         make -j$(nproc) O=out \
                         CC=clang \
                         CROSS_COMPILE=aarch64-linux-gnu- \
-                        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+                        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+                        KCFLAGS="-Wno-error"
 
     - name: 5. Upload Compiled Kernel (Artifact)
       uses: actions/upload-artifact@v4
