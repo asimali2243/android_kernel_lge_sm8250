@@ -30,23 +30,28 @@ jobs:
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-      - name: 5. Apply All LG & HID Fixes
+      - name: 5. Master Fix (LG, ESOC, HID & KernelSU)
         run: |
           cd kernel-source
+          
           # FIX 1: LG OIS Camera Bug bypass
-          echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
-          echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+          sed -i 's/obj-y += lgit_onsemi\//\#obj-y += lgit_onsemi\//g' techpack/camera/drivers/cam_sensor_module/cam_ois/Makefile
           
           # FIX 2: ESOC Header & Log bypass
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
-          # FIX 3: LG Display Panel Missing Functions (Global Bypass)
+          # FIX 3: LG Display Panel Global Bypass
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-          # FIX 4: HID Multitouch 'ABS' Error Fix
+          # FIX 4: HID Multitouch 'ABS' Error
           sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
+
+          # FIX 5: KernelSU MODULE_IMPORT_NS Fix (For 4.19 Kernels)
+          if [ -f drivers/kernelsu/ksu.c ]; then
+            sed -i '/MODULE_IMPORT_NS/d' drivers/kernelsu/ksu.c
+          fi
 
       - name: 6. Build Kernel
         run: |
@@ -63,34 +68,30 @@ jobs:
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function -Wno-format"
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function -Wno-format -Wno-int-conversion"
 
       - name: 7. Package with AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Find kernel image
-          cd kernel-source/out/arch/arm64/boot/
-          KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
+          # Dhoondho kernel image
+          find kernel-source/out/arch/arm64/boot/ -maxdepth 1 -name "Image*" -exec cp {} AnyKernel3/Image.gz \;
           
-          if [ -z "$KERNEL_FILE" ]; then
+          if [ ! -f AnyKernel3/Image.gz ]; then
             echo "FAILED: Kernel image not found!"
             exit 1
           fi
           
-          cp $KERNEL_FILE ../../../../../AnyKernel3/Image.gz
+          # DTBO copy
+          [ -f kernel-source/out/arch/arm64/boot/dtbo.img ] && cp kernel-source/out/arch/arm64/boot/dtbo.img AnyKernel3/
           
-          # DTBO copy (important for V60)
-          [ -f dtbo.img ] && cp dtbo.img ../../../../../AnyKernel3/
-          
-          # Build Zip
-          cd ../../../../../AnyKernel3
+          cd AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
           zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
 
-      - name: 8. Upload Artifacts
+      - name: 8. Upload Result
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-Kernel-SukiSU
+          name: LGV60-SukiSU-Kernel
           path: LGV60-SukiSU-Ultra-Kernel.zip
