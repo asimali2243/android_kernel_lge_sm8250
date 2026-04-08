@@ -28,10 +28,10 @@ jobs:
       - name: 4. Integrate KSU-Next
         run: |
           cd kernel-source
-          # KSU-Next (4.19 friendly branch)
+          # KSU-Next (Next branch) - 4.19 compatible
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-      - name: 5. Master Surgical Fixes (LG Hardware Drivers)
+      - name: 5. Master Surgical Fixes (LG & Kernel 4.19)
         run: |
           cd kernel-source
           
@@ -42,18 +42,19 @@ jobs:
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
-          # FIX 3: LG Display Panel Missing Functions
+          # FIX 3: LG Display Global Bypass
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-          # FIX 4: HID Multitouch Fix
+          # FIX 4: HID Multitouch 'ABS' Fix
           sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
 
-          # FIX 5: LG Radio Driver Factory Boot Fix (The latest error)
-          find drivers/media/radio -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_56K/56/g' {} +
-          find drivers/media/radio -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_910K/910/g' {} +
+          # FIX 5: LG Global Boot Mode Fix (Covers Radio, Wi-Fi, and more)
+          find drivers -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_56K/56/g' {} +
+          find drivers -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_910K/910/g' {} +
+          find drivers -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_CHARGERLOGO/13/g' {} +
           
-          # FIX 6: KernelSU 4.19 macro fixes
+          # FIX 6: KSU-Next 4.19 macro fixes
           find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/access_ok(/access_ok(0, /g' {} +
 
       - name: 6. Configure Kernel
@@ -62,7 +63,7 @@ jobs:
           export ARCH=arm64
           make O=out vendor/kona-perf_defconfig
           
-          # Enable KSU & Kallsyms
+          # SuSFS & KSU compatibility requirements
           scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KALLSYMS
           scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
@@ -78,6 +79,7 @@ jobs:
           export KBUILD_BUILD_USER="lutaif"
           export KBUILD_BUILD_HOST="github-actions"
           
+          # Using -j$(nproc) but limit if needed
           make -j$(nproc) O=out \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
@@ -88,7 +90,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Smart Finder
+          # Find and copy kernel image
           cd kernel-source/out/arch/arm64/boot/
           KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
           
@@ -103,10 +105,10 @@ jobs:
           cd ../../../../../AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
-          zip -r9 ../LGV60-KSU-Next-Kernel-Final.zip *
+          zip -r9 ../LGV60-KSU-Next-Kernel.zip *
 
-      - name: 9. Upload Artifact
+      - name: 9. Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-Kernel-Final
-          path: LGV60-KSU-Next-Kernel-Final.zip
+          name: LGV60-KSU-Next-Final
+          path: LGV60-KSU-Next-Kernel.zip
