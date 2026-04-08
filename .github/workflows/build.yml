@@ -1,55 +1,88 @@
-name: Build LG V60 Kernel
-on: workflow_dispatch
+name: Build LG V60 Kernel + SukiSU Ultra
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - lineage-23.2
+
 jobs:
   build:
-    name: Compile Kernel
-    runs-on: ubuntu-22.04
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    runs-on: ubuntu-latest
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        repository: asimali2243/android_kernel_lge_sm8250
-        path: kernel-source
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-    - name: Setup Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            bc bison build-essential ccache curl flex g++-multilib \
+            gcc-multilib git gnupg gperf lib32ncurses5-dev \
+            lib32readline-dev lib32z1-dev libelf-dev liblz4-tool \
+            libncurses5-dev libssl-dev libxml2 libxml2-utils \
+            lzop rsync zip unzip python3 python-is-python3
 
-    - name: Download Toolchain
-      run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchains/proton-clang
+      - name: Clone Proton Clang
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-    - name: Compile the Kernel
-      run: |
-        cd kernel-source
-        
-        # SukiSU Ultra Injector
-        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
-        
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export PATH="$GITHUB_WORKSPACE/toolchains/proton-clang/bin:${PATH}"
-        export KBUILD_BUILD_USER="lutaif"
-        export KBUILD_BUILD_HOST="github-actions"
-        
-        # FIX 1: LG OIS Camera Bug (Pichla wala)
-        echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
-        echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
-        
-        # FIX 2: ESOC Header Syntax Error
-        sed -i '36,40d' drivers/esoc/esoc.h
-        
-        # FIX 3: LG Display Panel Missing Functions
-        sed -i 's/lge_get_factory_boot()/0/g' techpack/display/msm/lge/lge_dsi_panel.c
-        sed -i 's/lge_get_mfts_mode()/0/g' techpack/display/msm/lge/lge_dsi_panel.c
-        
-        make O=out vendor/kona-perf_defconfig
-        make -j$(nproc) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- KCFLAGS="-Wno-error"
+      - name: Add SukiSU Ultra
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-    - name: Upload Kernel
-      uses: actions/upload-artifact@v4
-      with:
-        name: Compiled-Kernel-Image
-        path: kernel-source/out/arch/arm64/boot/Image.gz
+      - name: Export Build Environment
+        run: |
+          echo "ARCH=arm64" >> $GITHUB_ENV
+          echo "SUBARCH=arm64" >> $GITHUB_ENV
+          echo "PATH=${{ github.workspace }}/clang/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Apply LG Display Fixes
+        run: |
+          find techpack/display -type f \( -name "*.c" -o -name "*.h" \) \
+          -exec sed -i 's/lge_get_factory_boot()/0/g' {} \;
+
+          find techpack/display -type f \( -name "*.c" -o -name "*.h" \) \
+          -exec sed -i 's/lge_get_mfts_mode()/0/g' {} \;
+
+      - name: Configure Kernel (LG V60)
+        run: |
+          make O=out vendor/kona-perf_defconfig
+          make O=out olddefconfig
+
+      - name: Build Kernel
+        run: |
+          make -j$(nproc) O=out \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS="-Wno-error" \
+            2>&1 | tee build.log
+
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp out/arch/arm64/boot/Image AnyKernel3/
+          cp out/arch/arm64/boot/dtb AnyKernel3/ || true
+          cp out/arch/arm64/boot/dtbo.img AnyKernel3/ || true
+
+      - name: Create Flashable Zip
+        run: |
+          cd AnyKernel3
+          zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
+
+      - name: Upload Kernel Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: LGV60-SukiSU-Ultra-Kernel
+          path: LGV60-SukiSU-Ultra-Kernel.zip
+
+      - name: Upload Build Log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
