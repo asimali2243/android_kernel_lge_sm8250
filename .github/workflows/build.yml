@@ -1,4 +1,4 @@
-name: Build LG V60 Kernel + SukiSU Ultra (KPM Edition)
+name: Build LG V60 Kernel + KSU-Next
 
 on:
   workflow_dispatch:
@@ -25,20 +25,20 @@ jobs:
       - name: 3. Clone Proton Clang
         run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: 4. Integrate SukiSU Ultra (KernelPatch)
+      - name: 4. Integrate KSU-Next
         run: |
           cd kernel-source
-          # SukiSU Ultra Injection Script
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
+          # KSU-Next (Next Branch) - 4.19 friendly
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-      - name: 5. Master Fixes (LG Drivers + Kernel 4.19 Compatibility)
+      - name: 5. LG Device Fixes (Hardware Drivers)
         run: |
           cd kernel-source
           
-          # FIX 1: LG OIS Camera Bug bypass (Makefile modification)
+          # FIX 1: LG OIS Camera Bug bypass
           sed -i 's/obj-y += lgit_onsemi\//\#obj-y += lgit_onsemi\//g' techpack/camera/drivers/cam_sensor_module/cam_ois/Makefile
           
-          # FIX 2: ESOC Header & Log function bypass
+          # FIX 2: ESOC Header & Log bypass
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
@@ -46,26 +46,19 @@ jobs:
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-          # FIX 4: HID Multitouch 'ABS' Macro Fix
+          # FIX 4: HID Multitouch Fix
           sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
 
-          # FIX 5: Kernel 4.19 KernelSU Fixes (TWA_RESUME & MODULE_IMPORT_NS)
-          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/MODULE_IMPORT_NS/ \/\/ MODULE_IMPORT_NS/g' {} +
-          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/TWA_RESUME/1/g' {} +
-
-      - name: 6. Configure & Patch .config
+      - name: 6. Configure Kernel
         run: |
           cd kernel-source
           export ARCH=arm64
           make O=out vendor/kona-perf_defconfig
           
-          # Force enabling KPM and KALLSYMS for SukiSU Ultra
-          scripts/config --file out/.config --enable CONFIG_KPM
+          # Enable KSU & Kallsyms
+          scripts/config --file out/.config --enable CONFIG_KSU
           scripts/config --file out/.config --enable CONFIG_KALLSYMS
           scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
-          
-          # Optional: DTBO support ensure
-          scripts/config --file out/.config --enable CONFIG_BUILD_ARM64_DTB_OVERLAY
           
           make O=out ARCH=arm64 olddefconfig
 
@@ -88,12 +81,12 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Image detection and copying
+          # Kernel search logic
           cd kernel-source/out/arch/arm64/boot/
           KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
           
           if [ -z "$KERNEL_FILE" ]; then
-            echo "Error: No kernel image found!"
+            echo "FAILED: Kernel image not found!"
             exit 1
           fi
           
@@ -103,10 +96,10 @@ jobs:
           cd ../../../../../AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
-          zip -r9 ../LGV60-SukiSU-Ultra-Final.zip *
+          zip -r9 ../LGV60-KSU-Next-Kernel.zip *
 
-      - name: 9. Upload Kernel
+      - name: 9. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-SukiSU-Ultra-Final
-          path: LGV60-SukiSU-Ultra-Final.zip
+          name: LGV60-KSU-Next-Kernel
+          path: LGV60-KSU-Next-Kernel.zip
