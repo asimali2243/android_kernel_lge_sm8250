@@ -34,9 +34,16 @@ jobs:
         export KBUILD_BUILD_USER="lutaif"
         export KBUILD_BUILD_HOST="github-actions"
         
-        # YEH HAI SURGICAL STRIKE: LG OIS ki tooti hui file ko andar se khali kar dena
+        # FIX 1: LG OIS Camera Bug (Pichla wala)
         echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
         echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+        
+        # FIX 2: ESOC Header Syntax Error
+        sed -i '36,40d' drivers/esoc/esoc.h
+        
+        # FIX 3: LG Display Panel Missing Functions
+        sed -i 's/lge_get_factory_boot()/0/g' techpack/display/msm/lge/lge_dsi_panel.c
+        sed -i 's/lge_get_mfts_mode()/0/g' techpack/display/msm/lge/lge_dsi_panel.c
         
         make O=out vendor/kona-perf_defconfig
         make -j$(nproc) O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- KCFLAGS="-Wno-error"
