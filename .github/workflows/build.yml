@@ -2,88 +2,94 @@ name: Build LG V60 Kernel + SukiSU Ultra
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - lineage-23.2
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: Checkout Kernel Source
+      - name: 1. Checkout Kernel Source
         uses: actions/checkout@v4
         with:
+          repository: asimali2243/android_kernel_lge_sm8250
+          path: kernel-source
           fetch-depth: 1
 
-      - name: Install Dependencies
+      - name: 2. Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y \
-            bc bison build-essential ccache curl flex g++-multilib \
-            gcc-multilib git gnupg gperf lib32readline-dev \
-            lib32z1-dev libelf-dev liblz4-tool libncurses-dev \
-            libssl-dev libxml2 libxml2-utils lzop rsync \
-            zip unzip python3 python-is-python3
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync zip unzip python3 python-is-python3
 
-      - name: Clone Proton Clang
-        run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+      - name: 3. Clone Proton Clang
+        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: Add SukiSU Ultra
+      - name: 4. Add SukiSU Ultra
         run: |
+          cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-      - name: Export Build Environment
+      - name: 5. Apply All LG & ESOC Fixes
         run: |
-          echo "ARCH=arm64" >> $GITHUB_ENV
-          echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "${{ github.workspace }}/clang/bin" >> $GITHUB_PATH
+          cd kernel-source
+          # FIX 1: LG OIS Camera Bug (Empty file bypass)
+          echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+          echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+          
+          # FIX 2: ESOC Header & Missing Log Function
+          sed -i '36,40d' drivers/esoc/esoc.h
+          find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
+          
+          # FIX 3: LG Display Panel Missing Functions (Global Bypass)
+          find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
+          find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-      - name: Apply LG Display Fixes
+      - name: 6. Build Kernel
         run: |
-          find techpack/display -type f \( -name "*.c" -o -name "*.h" \) \
-          -exec sed -i 's/lge_get_factory_boot()/0/g' {} \;
-
-          find techpack/display -type f \( -name "*.c" -o -name "*.h" \) \
-          -exec sed -i 's/lge_get_mfts_mode()/0/g' {} \;
-
-      - name: Configure Kernel (LG V60)
-        run: |
-          make O=out ARCH=arm64 vendor/kona-perf_defconfig
-          make O=out ARCH=arm64 olddefconfig
-
-      - name: Build Kernel
-        run: |
+          cd kernel-source
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="${{ github.workspace }}/clang/bin:${PATH}"
+          export KBUILD_BUILD_USER="lutaif"
+          export KBUILD_BUILD_HOST="github-actions"
+          
+          make O=out vendor/kona-perf_defconfig
+          
           make -j$(nproc) O=out \
-            ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCFLAGS="-Wno-error" \
-            2>&1 | tee build.log
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function"
 
-      - name: Clone AnyKernel3
+      - name: 7. Package with AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp out/arch/arm64/boot/Image AnyKernel3/
-          cp out/arch/arm64/boot/dtb AnyKernel3/ || true
-          cp out/arch/arm64/boot/dtbo.img AnyKernel3/ || true
-
-      - name: Create Flashable Zip
-        run: |
-          cd AnyKernel3
+          
+          # Detect kernel file (V60 might produce Image, Image.gz or Image.gz-dtb)
+          cd kernel-source/out/arch/arm64/boot/
+          KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
+          
+          if [ -z "$KERNEL_FILE" ]; then
+            echo "Error: No kernel image found in out directory!"
+            exit 1
+          fi
+          
+          echo "Found kernel: $KERNEL_FILE"
+          cp $KERNEL_FILE ../../../../../AnyKernel3/Image.gz
+          
+          # Copy DTBO if exists
+          [ -f dtbo.img ] && cp dtbo.img ../../../../../AnyKernel3/
+          
+          cd ../../../../../AnyKernel3
+          # Set V60 properties
+          sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
+          
           zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
 
-      - name: Upload Kernel Zip
+      - name: 8. Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: LGV60-SukiSU-Ultra-Kernel
           path: LGV60-SukiSU-Ultra-Kernel.zip
-
-      - name: Upload Build Log
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
