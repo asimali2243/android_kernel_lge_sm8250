@@ -6,71 +6,90 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: 1. Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: asimali2243/android_kernel_lge_sm8250
-          ref: lineage-23.2
           path: kernel-source
           fetch-depth: 1
 
       - name: 2. Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y bc bison build-essential flex curl zip unzip \
-          git python3 cpio libssl-dev
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync zip unzip python3 python-is-python3
 
       - name: 3. Clone Proton Clang
-        run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: 4. Add SukiSU Ultra
         run: |
           cd kernel-source
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-      - name: 5. Fix Kernel Source Issues
+      - name: 5. Apply All LG & HID Fixes
         run: |
           cd kernel-source
-          # Fix unused function error
-          sed -i 's/static void proc_cmdline_set/static __maybe_unused void proc_cmdline_set/g' fs/proc/cmdline.c
+          # FIX 1: LG OIS Camera Bug bypass
+          echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+          echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
+          
+          # FIX 2: ESOC Header & Log bypass
+          sed -i '36,40d' drivers/esoc/esoc.h
+          find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
+          
+          # FIX 3: LG Display Panel Missing Functions (Global Bypass)
+          find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
+          find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-      - name: 6. Build Kernel (Clang)
+          # FIX 4: HID Multitouch 'ABS' Error Fix
+          sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
+
+      - name: 6. Build Kernel
         run: |
           cd kernel-source
-
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH="${{ github.workspace }}/clang/bin:$PATH"
-          export KBUILD_BUILD_USER="asim"
-          export KBUILD_BUILD_HOST="github"
-
+          export PATH="${{ github.workspace }}/clang/bin:${PATH}"
+          export KBUILD_BUILD_USER="lutaif"
+          export KBUILD_BUILD_HOST="github-actions"
+          
           make O=out vendor/kona-perf_defconfig
-          make O=out olddefconfig
-
+          
           make -j$(nproc) O=out \
             CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            KCFLAGS="-Wno-error -Wno-unused-function"
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function -Wno-format"
 
-      - name: 7. Package Kernel (AnyKernel3)
+      - name: 7. Package with AnyKernel3
         run: |
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-
-          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || \
-          cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
-
-          cd AnyKernel3
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          
+          # Find kernel image
+          cd kernel-source/out/arch/arm64/boot/
+          KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
+          
+          if [ -z "$KERNEL_FILE" ]; then
+            echo "FAILED: Kernel image not found!"
+            exit 1
+          fi
+          
+          cp $KERNEL_FILE ../../../../../AnyKernel3/Image.gz
+          
+          # DTBO copy (important for V60)
+          [ -f dtbo.img ] && cp dtbo.img ../../../../../AnyKernel3/
+          
+          # Build Zip
+          cd ../../../../../AnyKernel3
+          sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
+          sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
           zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
 
-      - name: 8. Upload Artifact
+      - name: 8. Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: LGV60-Kernel-SukiSU
