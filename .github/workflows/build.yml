@@ -1,55 +1,27 @@
-name: Build LG V60 Kernel
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Compile Kernel
-    runs-on: ubuntu-22.04
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true 
-
-    steps:
-    - name: Checkout Kernel Source
-      uses: actions/checkout@v4
-      with:
-        repository: asimali2243/android_kernel_lge_sm8250
-        path: kernel-source
-
-    - name: Setup Build Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
-
-    - name: Download Proton Clang Toolchain
-      run: |
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchains/proton-clang
-
-    - name: Compile the Kernel
+- name: Compile the Kernel
       run: |
         cd kernel-source
+        
+        # SukiSU Ultra Injector
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
         
         export ARCH=arm64
         export SUBARCH=arm64
         export PATH="$GITHUB_WORKSPACE/toolchains/proton-clang/bin:${PATH}"
         
-        # Phone mein tumhara naam aayega
         export KBUILD_BUILD_USER="lutaif"
         export KBUILD_BUILD_HOST="github-actions"
         
-        # Sahi tareeqay se defconfig banana
+        # 1. Defconfig generate karo
         make O=out vendor/kona-perf_defconfig
         
-        # Build command (Sath mein safely warnings ko ignore karwana)
+        # 2. YEH FIX HAI: Broken OIS camera module ko config se disable karna
+        scripts/config --file out/.config --disable CONFIG_SPECTRA_CAMERA
+        scripts/config --file out/.config --disable CONFIG_LGE_CAMERA_OIS
+        
+        # 3. Compile start karo
         make -j$(nproc) O=out \
                         CC=clang \
                         CROSS_COMPILE=aarch64-linux-gnu- \
                         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
                         KCFLAGS="-Wno-error"
-
-    - name: Upload Compiled Kernel
-      uses: actions/upload-artifact@v4
-      with:
-        name: Compiled-Kernel-Image
-        path: kernel-source/out/arch/arm64/boot/Image.gz
