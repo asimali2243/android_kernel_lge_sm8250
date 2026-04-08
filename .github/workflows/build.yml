@@ -1,8 +1,5 @@
 name: Build LG V60 Kernel
-
-on:
-  workflow_dispatch:
-
+on: workflow_dispatch
 jobs:
   build:
     name: Compile Kernel
@@ -22,14 +19,14 @@ jobs:
         sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
 
     - name: Download Toolchain
-      run: git clone --depth=1 [https://github.com/kdrag0n/proton-clang.git](https://github.com/kdrag0n/proton-clang.git) toolchains/proton-clang
+      run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchains/proton-clang
 
     - name: Compile the Kernel
       run: |
         cd kernel-source
         
         # SukiSU Ultra Injector
-        curl -LSs "[https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh](https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh)" | bash -
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
         
         export ARCH=arm64
         export SUBARCH=arm64
