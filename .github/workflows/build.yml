@@ -8,53 +8,61 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout Kernel Source
+      - name: 1. Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           repository: asimali2243/android_kernel_lge_sm8250
-          path: kernel-source
           ref: lineage-23.2
+          path: kernel-source
+          fetch-depth: 1
 
-      - name: Install Dependencies
+      - name: 2. Install Dependencies
         run: |
           sudo apt update
           sudo apt install -y bc bison build-essential flex curl zip unzip \
-          gcc g++ git python3 cpio libssl-dev
+          git python3 cpio libssl-dev
 
-      - name: Clone Proton Clang
-        run: git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+      - name: 3. Clone Proton Clang
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: Add SukiSU Ultra
+      - name: 4. Add SukiSU Ultra
         run: |
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
 
-      - name: Build Kernel
+      - name: 5. Build Kernel (Clang)
         run: |
           cd kernel-source
 
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="${{ github.workspace }}/clang/bin:$PATH"
+          export KBUILD_BUILD_USER="asim"
+          export KBUILD_BUILD_HOST="github"
 
           make O=out vendor/kona-perf_defconfig
 
           make -j$(nproc) O=out \
             CC=clang \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi-
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip
 
-      - name: Package AnyKernel3
+      - name: 6. Package Kernel (AnyKernel3)
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
 
           cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
 
           cd AnyKernel3
-          zip -r9 ../kernel.zip *
+          zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
 
-      - name: Upload
+      - name: 7. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-Kernel
-          path: kernel.zip
+          name: LGV60-Kernel-SukiSU
+          path: LGV60-SukiSU-Ultra-Kernel.zip
