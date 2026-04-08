@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Kernel Source
@@ -22,10 +22,10 @@ jobs:
           sudo apt update
           sudo apt install -y \
             bc bison build-essential ccache curl flex g++-multilib \
-            gcc-multilib git gnupg gperf lib32ncurses5-dev \
-            lib32readline-dev lib32z1-dev libelf-dev liblz4-tool \
-            libncurses5-dev libssl-dev libxml2 libxml2-utils \
-            lzop rsync zip unzip python3 python-is-python3
+            gcc-multilib git gnupg gperf lib32readline-dev \
+            lib32z1-dev libelf-dev liblz4-tool libncurses-dev \
+            libssl-dev libxml2 libxml2-utils lzop rsync \
+            zip unzip python3 python-is-python3
 
       - name: Clone Proton Clang
         run: |
@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "ARCH=arm64" >> $GITHUB_ENV
           echo "SUBARCH=arm64" >> $GITHUB_ENV
-          echo "PATH=${{ github.workspace }}/clang/bin:$PATH" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/clang/bin" >> $GITHUB_PATH
 
       - name: Apply LG Display Fixes
         run: |
@@ -51,12 +51,13 @@ jobs:
 
       - name: Configure Kernel (LG V60)
         run: |
-          make O=out vendor/kona-perf_defconfig
-          make O=out olddefconfig
+          make O=out ARCH=arm64 vendor/kona-perf_defconfig
+          make O=out ARCH=arm64 olddefconfig
 
       - name: Build Kernel
         run: |
           make -j$(nproc) O=out \
+            ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
