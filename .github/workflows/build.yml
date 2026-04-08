@@ -31,7 +31,13 @@ jobs:
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s nongki
 
-      - name: 5. Build Kernel (Clang)
+      - name: 5. Fix Kernel Source Issues
+        run: |
+          cd kernel-source
+          # Fix unused function error
+          sed -i 's/static void proc_cmdline_set/static __maybe_unused void proc_cmdline_set/g' fs/proc/cmdline.c
+
+      - name: 6. Build Kernel (Clang)
         run: |
           cd kernel-source
 
@@ -42,6 +48,7 @@ jobs:
           export KBUILD_BUILD_HOST="github"
 
           make O=out vendor/kona-perf_defconfig
+          make O=out olddefconfig
 
           make -j$(nproc) O=out \
             CC=clang \
@@ -50,18 +57,20 @@ jobs:
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip
+            STRIP=llvm-strip \
+            KCFLAGS="-Wno-error -Wno-unused-function"
 
-      - name: 6. Package Kernel (AnyKernel3)
+      - name: 7. Package Kernel (AnyKernel3)
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
 
-          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cp kernel-source/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/ || \
+          cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/
 
           cd AnyKernel3
           zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
 
-      - name: 7. Upload Artifact
+      - name: 8. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: LGV60-Kernel-SukiSU
