@@ -28,10 +28,10 @@ jobs:
       - name: 4. Integrate KSU-Next
         run: |
           cd kernel-source
-          # KSU-Next (Next Branch) - 4.19 friendly
+          # KSU-Next (4.19 friendly branch)
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-      - name: 5. LG Device Fixes (Hardware Drivers)
+      - name: 5. Master Surgical Fixes (LG Hardware Drivers)
         run: |
           cd kernel-source
           
@@ -42,12 +42,19 @@ jobs:
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
-          # FIX 3: LG Display Global Bypass
+          # FIX 3: LG Display Panel Missing Functions
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
           # FIX 4: HID Multitouch Fix
           sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
+
+          # FIX 5: LG Radio Driver Factory Boot Fix (The latest error)
+          find drivers/media/radio -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_56K/56/g' {} +
+          find drivers/media/radio -type f -name "*.c" -exec sed -i 's/LGE_BOOT_MODE_QEM_910K/910/g' {} +
+          
+          # FIX 6: KernelSU 4.19 macro fixes
+          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/access_ok(/access_ok(0, /g' {} +
 
       - name: 6. Configure Kernel
         run: |
@@ -81,7 +88,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Kernel search logic
+          # Smart Finder
           cd kernel-source/out/arch/arm64/boot/
           KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
           
@@ -96,10 +103,10 @@ jobs:
           cd ../../../../../AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
-          zip -r9 ../LGV60-KSU-Next-Kernel.zip *
+          zip -r9 ../LGV60-KSU-Next-Kernel-Final.zip *
 
       - name: 9. Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-KSU-Next-Kernel
-          path: LGV60-KSU-Next-Kernel.zip
+          name: LGV60-Kernel-Final
+          path: LGV60-KSU-Next-Kernel-Final.zip
