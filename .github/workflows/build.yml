@@ -1,4 +1,4 @@
-name: Build LG V60 Kernel + SukiSU Ultra
+name: Build LG V60 Kernel + SukiSU Ultra (KPM Edition)
 
 on:
   workflow_dispatch:
@@ -25,35 +25,51 @@ jobs:
       - name: 3. Clone Proton Clang
         run: git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: 4. Add SukiSU Ultra
+      - name: 4. Integrate SukiSU Ultra (KernelPatch)
         run: |
           cd kernel-source
+          # SukiSU Ultra Injection Script
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-      - name: 5. Master Fix (LG, ESOC, HID & KernelSU)
+      - name: 5. Master Fixes (LG Drivers + Kernel 4.19 Compatibility)
         run: |
           cd kernel-source
           
-          # FIX 1: LG OIS Camera Bug bypass
+          # FIX 1: LG OIS Camera Bug bypass (Makefile modification)
           sed -i 's/obj-y += lgit_onsemi\//\#obj-y += lgit_onsemi\//g' techpack/camera/drivers/cam_sensor_module/cam_ois/Makefile
           
-          # FIX 2: ESOC Header & Log bypass
+          # FIX 2: ESOC Header & Log function bypass
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
-          # FIX 3: LG Display Panel Global Bypass
+          # FIX 3: LG Display Global Bypass
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
 
-          # FIX 4: HID Multitouch 'ABS' Error
+          # FIX 4: HID Multitouch 'ABS' Macro Fix
           sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
 
-          # FIX 5: KernelSU MODULE_IMPORT_NS Fix (For 4.19 Kernels)
-          if [ -f drivers/kernelsu/ksu.c ]; then
-            sed -i '/MODULE_IMPORT_NS/d' drivers/kernelsu/ksu.c
-          fi
+          # FIX 5: Kernel 4.19 KernelSU Fixes (TWA_RESUME & MODULE_IMPORT_NS)
+          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/MODULE_IMPORT_NS/ \/\/ MODULE_IMPORT_NS/g' {} +
+          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/TWA_RESUME/1/g' {} +
 
-      - name: 6. Build Kernel
+      - name: 6. Configure & Patch .config
+        run: |
+          cd kernel-source
+          export ARCH=arm64
+          make O=out vendor/kona-perf_defconfig
+          
+          # Force enabling KPM and KALLSYMS for SukiSU Ultra
+          scripts/config --file out/.config --enable CONFIG_KPM
+          scripts/config --file out/.config --enable CONFIG_KALLSYMS
+          scripts/config --file out/.config --enable CONFIG_KALLSYMS_ALL
+          
+          # Optional: DTBO support ensure
+          scripts/config --file out/.config --enable CONFIG_BUILD_ARM64_DTB_OVERLAY
+          
+          make O=out ARCH=arm64 olddefconfig
+
+      - name: 7. Build Kernel
         run: |
           cd kernel-source
           export ARCH=arm64
@@ -62,36 +78,35 @@ jobs:
           export KBUILD_BUILD_USER="lutaif"
           export KBUILD_BUILD_HOST="github-actions"
           
-          make O=out vendor/kona-perf_defconfig
-          
           make -j$(nproc) O=out \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function -Wno-format -Wno-int-conversion"
 
-      - name: 7. Package with AnyKernel3
+      - name: 8. Package with AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Dhoondho kernel image
-          find kernel-source/out/arch/arm64/boot/ -maxdepth 1 -name "Image*" -exec cp {} AnyKernel3/Image.gz \;
+          # Image detection and copying
+          cd kernel-source/out/arch/arm64/boot/
+          KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
           
-          if [ ! -f AnyKernel3/Image.gz ]; then
-            echo "FAILED: Kernel image not found!"
+          if [ -z "$KERNEL_FILE" ]; then
+            echo "Error: No kernel image found!"
             exit 1
           fi
           
-          # DTBO copy
-          [ -f kernel-source/out/arch/arm64/boot/dtbo.img ] && cp kernel-source/out/arch/arm64/boot/dtbo.img AnyKernel3/
+          cp $KERNEL_FILE ../../../../../AnyKernel3/Image.gz
+          [ -f dtbo.img ] && cp dtbo.img ../../../../../AnyKernel3/
           
-          cd AnyKernel3
+          cd ../../../../../AnyKernel3
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
-          zip -r9 ../LGV60-SukiSU-Ultra-Kernel.zip *
+          zip -r9 ../LGV60-SukiSU-Ultra-Final.zip *
 
-      - name: 8. Upload Result
+      - name: 9. Upload Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-SukiSU-Kernel
-          path: LGV60-SukiSU-Ultra-Kernel.zip
+          name: LGV60-SukiSU-Ultra-Final
+          path: LGV60-SukiSU-Ultra-Final.zip
