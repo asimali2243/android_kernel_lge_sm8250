@@ -30,20 +30,23 @@ jobs:
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -
 
-      - name: 5. Apply All LG & ESOC Fixes
+      - name: 5. Apply All LG & HID Fixes
         run: |
           cd kernel-source
-          # FIX 1: LG OIS Camera Bug (Empty file bypass)
+          # FIX 1: LG OIS Camera Bug bypass
           echo '#include <linux/module.h>' > techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
           echo 'MODULE_LICENSE("GPL v2");' >> techpack/camera/drivers/cam_sensor_module/cam_ois/lgit_onsemi/lgit_s5kgw1_onsemi_ois.c
           
-          # FIX 2: ESOC Header & Missing Log Function
+          # FIX 2: ESOC Header & Log bypass
           sed -i '36,40d' drivers/esoc/esoc.h
           find drivers/esoc -type f -name "*.c" -exec sed -i 's/esoc_mdm_log/pr_info/g' {} +
           
           # FIX 3: LG Display Panel Missing Functions (Global Bypass)
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_factory_boot()/0/g' {} +
           find techpack/display -type f -name "*.c" -exec sed -i 's/lge_get_mfts_mode()/0/g' {} +
+
+          # FIX 4: HID Multitouch 'ABS' Error Fix
+          sed -i 's/TOUCH_D(ABS/pr_info(/g' drivers/hid/hid-multitouch.c
 
       - name: 6. Build Kernel
         run: |
@@ -60,29 +63,25 @@ jobs:
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function"
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-unused-function -Wno-format"
 
       - name: 7. Package with AnyKernel3
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           
-          # Detect kernel file (V60 might produce Image, Image.gz or Image.gz-dtb)
+          # Smart Kernel Finder
           cd kernel-source/out/arch/arm64/boot/
           KERNEL_FILE=$(ls Image.gz-dtb Image.gz Image 2>/dev/null | head -n 1)
           
           if [ -z "$KERNEL_FILE" ]; then
-            echo "Error: No kernel image found in out directory!"
+            echo "FAILED: Kernel image not found!"
             exit 1
           fi
           
-          echo "Found kernel: $KERNEL_FILE"
           cp $KERNEL_FILE ../../../../../AnyKernel3/Image.gz
-          
-          # Copy DTBO if exists
           [ -f dtbo.img ] && cp dtbo.img ../../../../../AnyKernel3/
           
           cd ../../../../../AnyKernel3
-          # Set V60 properties
           sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
           sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
           
@@ -91,5 +90,5 @@ jobs:
       - name: 8. Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LGV60-SukiSU-Ultra-Kernel
+          name: LGV60-Kernel-SukiSU
           path: LGV60-SukiSU-Ultra-Kernel.zip
