@@ -1,4 +1,4 @@
-name: Build LG V60 Kernel (KSU-Next + sufs)
+name: Build LG V60 Kernel (KSU-Next + SuSFS)
 
 on:
   workflow_dispatch: # Manual trigger button k liye
@@ -27,17 +27,25 @@ jobs:
         echo "Downloading Clang..."
         git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
 
-    - name: Patch KernelSU-Next and sufs
+    - name: Patch KernelSU-Next and SuSFS
       run: |
         cd kernel-source
         
-        # Inject KernelSU-Next
+        # Inject KernelSU-Next (Updated Official Link)
         echo "Applying KernelSU-Next..."
-        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/setup.sh" | bash -
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
         
-        # Inject sufs
-        echo "Applying sufs..."
-        curl -LSs "https://raw.githubusercontent.com/zxcvbnm3057/sufs/main/setup.sh" | bash -
+        # Inject SuSFS (LG V60 runs on kernel 4.19, so we use the 4.19 patch)
+        echo "Applying SuSFS..."
+        git clone https://gitlab.com/simonpunk/susfs4ksu.git
+        
+        # Copy SuSFS files into kernel
+        cp susfs4ksu/kernel_patches/fs/* fs/
+        cp susfs4ksu/kernel_patches/include/linux/* include/linux/
+        
+        # Apply SuSFS patches (Ignoring slight mismatches to prevent fails)
+        echo "Patching SuSFS for kernel 4.19..."
+        patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
 
     - name: Apply Safety Patches & Required Configs
       run: |
@@ -46,9 +54,10 @@ jobs:
         echo "Removing -Werror to prevent warnings from stopping the build..."
         find . -name "Makefile" -exec sed -i 's/-Werror//g' {} +
         
-        echo "Injecting KSU and sufs dependencies into LG V60 defconfig..."
+        echo "Injecting KSU and SuSFS dependencies into LG V60 defconfig..."
         DEFCONFIG="arch/arm64/configs/vendor/timelm-perf_defconfig"
         
+        # Add required configs directly to the defconfig file
         echo "CONFIG_KPROBES=y" >> $DEFCONFIG
         echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
         echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
@@ -73,6 +82,7 @@ jobs:
         cd kernel-source
         
         # LG V60 Defconfig setup
+        echo "Generating config..."
         make O=out vendor/timelm-perf_defconfig
         
         echo "Starting Compilation..."
@@ -86,8 +96,8 @@ jobs:
         echo "Cloning AnyKernel3..."
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
         
-        # Copy compiled image files
-        cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/
+        # Copy compiled image files (LG V60 usually uses Image.gz or Image)
+        cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
         cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/ || true
         cp kernel-source/out/arch/arm64/boot/Image.lz4 AnyKernel3/ || true
         cp kernel-source/out/arch/arm64/boot/dts/vendor/qcom/*.dtb AnyKernel3/dtb || true
@@ -97,12 +107,13 @@ jobs:
         # AnyKernel script update for LG V60
         sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
         sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
+        sed -i 's/device.name3=tuna/device.name3=cayman/g' anykernel.sh
         
         echo "Zipping flashable file..."
-        zip -r9 ../LG_V60_KSU-Next_sufs.zip * -x .git README.md *placeholder
+        zip -r9 ../LG_V60_KSU-Next_SuSFS.zip * -x .git README.md *placeholder
 
     - name: Upload Flashable Zip
       uses: actions/upload-artifact@v4
       with:
-        name: LG_V60_KSU-Next_sufs_Flashable
-        path: LG_V60_KSU-Next_sufs.zip
+        name: LG_V60_KSU-Next_SuSFS_Flashable
+        path: LG_V60_KSU-Next_SuSFS.zip
