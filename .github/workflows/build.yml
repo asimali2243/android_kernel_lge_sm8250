@@ -1,7 +1,7 @@
-name: Build LGE SM8250 Kernel (KSU-Next + sufs)
+name: Build LG V60 Kernel (KSU-Next + sufs)
 
 on:
-  workflow_dispatch: # Allows you to trigger the build manually
+  workflow_dispatch: # Manual trigger button k liye
 
 jobs:
   build-kernel:
@@ -11,34 +11,53 @@ jobs:
     - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
-        # Defaults to the repository where this workflow is placed
-        fetch-depth: 1
+        path: kernel-source
 
     - name: Setup Build Environment
       run: |
         echo "Installing Dependencies..."
         sudo apt-get update
-        sudo apt-get install -y build-essential bc bison flex ccache curl g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+        sudo apt-get install -y build-essential bc bison flex ccache curl g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python2
         
-        echo "Downloading Proton Clang Toolchain..."
-        mkdir -p ${{ github.workspace }}/toolchain
-        cd ${{ github.workspace }}/toolchain
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git
+        # Python alias fix ta k purane kernel scripts fail na hon
+        sudo ln -sf /usr/bin/python3 /usr/bin/python
 
-    - name: Integrate KernelSU-Next and sufs
+    - name: Download Proton Clang Toolchain
       run: |
+        echo "Downloading Clang..."
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
+
+    - name: Patch KernelSU-Next and sufs
+      run: |
+        cd kernel-source
+        
         # Inject KernelSU-Next
-        echo "Patching KernelSU-Next..."
+        echo "Applying KernelSU-Next..."
         curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/setup.sh" | bash -
         
         # Inject sufs
-        # (Using the standard sufs integration script)
-        echo "Patching sufs..."
+        echo "Applying sufs..."
         curl -LSs "https://raw.githubusercontent.com/zxcvbnm3057/sufs/main/setup.sh" | bash -
+
+    - name: Apply Safety Patches & Required Configs
+      run: |
+        cd kernel-source
+        
+        echo "Removing -Werror to prevent warnings from stopping the build..."
+        find . -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+        
+        echo "Injecting KSU and sufs dependencies into LG V60 defconfig..."
+        DEFCONFIG="arch/arm64/configs/vendor/timelm-perf_defconfig"
+        
+        echo "CONFIG_KPROBES=y" >> $DEFCONFIG
+        echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
+        echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
+        echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
+        echo "CONFIG_MODULES=y" >> $DEFCONFIG
 
     - name: Build Kernel
       run: |
-        export PATH="${{ github.workspace }}/toolchain/proton-clang/bin:$PATH"
+        export PATH="$GITHUB_WORKSPACE/toolchain/bin:$PATH"
         export ARCH=arm64
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-gnu-
@@ -50,27 +69,40 @@ jobs:
         export OBJCOPY=llvm-objcopy
         export OBJDUMP=llvm-objdump
         export STRIP=llvm-strip
-
-        # IMPORTANT: Replace 'vendor/kona-perf_defconfig' with your device's exact defconfig
-        # Examples for LG devices: vendor/timelm-perf_defconfig, vendor/cayman-perf_defconfig, etc.
-        DEFCONFIG="vendor/kona-perf_defconfig" 
         
-        echo "Making defconfig: $DEFCONFIG"
-        make O=out $DEFCONFIG
+        cd kernel-source
         
-        echo "Starting compilation..."
+        # LG V60 Defconfig setup
+        make O=out vendor/timelm-perf_defconfig
+        
+        echo "Starting Compilation..."
         make -j$(nproc --all) O=out \
                               CC=clang \
                               CROSS_COMPILE=aarch64-linux-gnu- \
                               CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-    - name: Upload Kernel Artifact
+    - name: Package into AnyKernel3 Zip
+      run: |
+        echo "Cloning AnyKernel3..."
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+        
+        # Copy compiled image files
+        cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/
+        cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/ || true
+        cp kernel-source/out/arch/arm64/boot/Image.lz4 AnyKernel3/ || true
+        cp kernel-source/out/arch/arm64/boot/dts/vendor/qcom/*.dtb AnyKernel3/dtb || true
+        
+        cd AnyKernel3
+        
+        # AnyKernel script update for LG V60
+        sed -i 's/device.name1=maguro/device.name1=timelm/g' anykernel.sh
+        sed -i 's/device.name2=toro/device.name2=v60/g' anykernel.sh
+        
+        echo "Zipping flashable file..."
+        zip -r9 ../LG_V60_KSU-Next_sufs.zip * -x .git README.md *placeholder
+
+    - name: Upload Flashable Zip
       uses: actions/upload-artifact@v4
       with:
-        name: AnyKernel3-Flashable-Zip # Or just the raw image
-        # The output path varies. Usually it's Image.gz, Image.gz-dtb, or Image.lz4
-        path: |
-          out/arch/arm64/boot/Image
-          out/arch/arm64/boot/Image.gz
-          out/arch/arm64/boot/Image.lz4
-          out/arch/arm64/boot/dts/vendor/qcom/*.dtb
+        name: LG_V60_KSU-Next_sufs_Flashable
+        path: LG_V60_KSU-Next_sufs.zip
