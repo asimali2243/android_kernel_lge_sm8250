@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04 # <-- FIX IS HERE: Changed to 20.04 to fix APT dependency conflicts
 
     steps:
     - name: Cleanup & Setup Build Environment
@@ -15,7 +15,8 @@ jobs:
         
         echo "Installing Dependencies..."
         sudo apt-get update
-        sudo apt-get install -y build-essential bc bison flex ccache curl g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python2 python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+        # Removed conflicting multilib packages, kept only required ARM cross-compilers
+        sudo apt-get install -y build-essential bc bison flex ccache curl git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python2 python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
         
         # Python 3 ko default set kar rahe hen purane scripts k liye
         sudo ln -sf /usr/bin/python3 /usr/bin/python
@@ -44,7 +45,7 @@ jobs:
         cp -r susfs4ksu/kernel_patches/fs/* fs/
         cp -r susfs4ksu/kernel_patches/include/linux/* include/linux/
         
-        # 3. Apply SuSFS Patch to Kernel (Using --forward to ignore minor errors)
+        # 3. Apply SuSFS Patch to Kernel
         echo "Patching Kernel 4.19 for SuSFS..."
         patch -p1 --forward < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
         
@@ -87,13 +88,12 @@ jobs:
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchain/bin:$PATH"
         
-        # Ek common variable bana diya ta k dono commands ko same parameters milein
+        # Common variable for both config and compile
         MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip"
         
         cd kernel-source
         
         echo "Generating config..."
-        # Yahan Kconfig ko bhi Clang variables pass kar diye hen
         make $MAKE_ARGS vendor/timelm-perf_defconfig
         
         echo "Starting Compilation (This takes 10-20 mins)..."
@@ -103,7 +103,7 @@ jobs:
       run: |
         git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3 --depth=1
         
-        # Grab all possible kernel image formats
+        # Grab kernel images
         cp kernel-source/out/arch/arm64/boot/Image AnyKernel3/ || true
         cp kernel-source/out/arch/arm64/boot/Image.gz AnyKernel3/ || true
         cp kernel-source/out/arch/arm64/boot/Image.lz4 AnyKernel3/ || true
